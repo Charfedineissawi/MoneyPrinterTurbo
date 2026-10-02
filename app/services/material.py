@@ -461,7 +461,18 @@ def search_videos_pixabay(
 
     try:
         r = requests.get(
-            query_url, proxies=config.proxy, verify=_get_tls_verify(), timeout=(30, 60)
+            query_url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/115.0.0.0 Safari/537.36"
+                ),
+            },
+            proxies=config.proxy,
+            verify=_get_tls_verify(),
+            timeout=(30, 60),
         )
         status_code = int(getattr(r, "status_code", 200))
         headers = getattr(r, "headers", {}) or {}
@@ -485,9 +496,14 @@ def search_videos_pixabay(
             return []
 
         if status_code >= 400:
+            detail = " ".join(
+                _redact_request_error(getattr(r, "text", ""), api_key).split()
+            )[:200]
+            detail_suffix = f", detail={detail!r}" if detail else ""
             logger.error(
                 "pixabay search request failed: "
                 f"status={status_code}, content_type={content_type or 'unknown'}"
+                f"{detail_suffix}"
             )
             return []
 

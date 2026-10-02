@@ -599,6 +599,29 @@ class TestMaterialTlsVerification(unittest.TestCase):
         logged_messages = " ".join(str(call.args[0]) for call in log.call_args_list)
         self.assertNotIn("pixabay-secret-key", logged_messages)
 
+    def test_search_pixabay_redacts_key_from_http_error_detail(self):
+        config.app["pixabay_api_keys"] = ["pixabay-secret-key"]
+        config.proxy.clear()
+
+        fake_response = SimpleNamespace(
+            status_code=400,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text="Invalid API key: pixabay-secret-key",
+        )
+
+        with patch(
+            "app.services.material.requests.get", return_value=fake_response
+        ), patch("app.services.material.logger.error") as log:
+            results = material.search_videos_pixabay("nature", minimum_duration=1)
+
+        logged_messages = " ".join(
+            str(call.args[0]) for call in log.call_args_list
+        )
+        self.assertEqual(results, [])
+        self.assertIn("status=400", logged_messages)
+        self.assertIn("detail='Invalid API key: ***'", logged_messages)
+        self.assertNotIn("pixabay-secret-key", logged_messages)
+
     def test_search_pixabay_reports_cloudflare_challenge(self):
         """
         Cloudflare Challenge 返回的是 HTML，不是 Pixabay API 的 JSON。

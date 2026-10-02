@@ -5383,7 +5383,7 @@ def _render_video_settings(panel, params):
                     )
                 )
             else:
-                video_clip_durations = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+                video_clip_durations = list(range(2, 31))
             params.video_clip_duration = stable_selectbox(
                 tr("Clip Duration"),
                 options=video_clip_durations,
