@@ -45,6 +45,7 @@ VOLCENGINE_ARK_API_KEY_URL = (
 OFOX_API_KEY_URL = "https://ofox.ai"
 MUAPI_API_KEY_URL = "https://muapi.ai"
 PEXELS_API_KEY_URL = "https://www.pexels.com/api/"
+PIXABAY_API_KEY_URL = "https://pixabay.com/api/docs/"
 PEXELS_VALIDATION_URL = "https://api.pexels.com/v1/collections?per_page=1"
 PEXELS_API_KEY_HELP_URL = (
     "https://help.pexels.com/hc/en-us/articles/"
@@ -230,6 +231,7 @@ def apply_environment_config(config_path: Path) -> None:
     base_url = os.environ.get("MPT_LLM_BASE_URL", "").strip()
     model_name = os.environ.get("MPT_LLM_MODEL_NAME", "").strip()
     pexels_key = os.environ.get("MPT_PEXELS_API_KEY", "").strip()
+    pixabay_key = os.environ.get("MPT_PIXABAY_API_KEY", "").strip()
     seedance_key = os.environ.get("MPT_VOLCENGINE_ARK_API_KEY", "").strip()
     ofox_key = os.environ.get("MPT_OFOX_API_KEY", "").strip()
     metaso_minimax_key = os.environ.get(
@@ -243,6 +245,7 @@ def apply_environment_config(config_path: Path) -> None:
             base_url,
             model_name,
             pexels_key,
+            pixabay_key,
             seedance_key,
             ofox_key,
             metaso_minimax_key,
@@ -270,6 +273,9 @@ def apply_environment_config(config_path: Path) -> None:
     if pexels_key:
         text = _replace_config_value(text, "pexels_api_keys", [pexels_key])
         changes.append("pexels_api_keys")
+    if pixabay_key:
+        text = _replace_config_value(text, "pixabay_api_keys", [pixabay_key])
+        changes.append("pixabay_api_keys")
     if seedance_key:
         text = _replace_config_value(
             text, "volcengine_seedance_api_key", seedance_key
@@ -332,14 +338,41 @@ def reuse_existing_llm_provider(config_path: Path) -> str:
     return current_provider
 
 
-def selected_video_source(cli_args: list[str]) -> str:
-    """Read the effective material source from forwarded CLI arguments."""
+def has_explicit_video_source(cli_args: list[str]) -> bool:
+    """Return whether the caller explicitly selected a material source."""
+    return any(
+        item == "--video-source" or item.startswith("--video-source=")
+        for item in cli_args
+    )
+
+
+def selected_video_source(
+    cli_args: list[str], config_text: str | None = None
+) -> str:
+    """Read the effective material source, including the configured fallback."""
     for index, item in enumerate(cli_args):
         if item == "--video-source" and index + 1 < len(cli_args):
             return cli_args[index + 1].strip().lower()
         if item.startswith("--video-source="):
             return item.split("=", 1)[1].strip().lower()
+    if config_text is not None:
+        if _has_configured_value(_plain_config_value(config_text, "pexels_api_keys")):
+            return "pexels"
+        if _has_configured_value(_plain_config_value(config_text, "pixabay_api_keys")):
+            return "pixabay"
     return "pexels"
+
+
+def resolve_video_source(config_path: Path, cli_args: list[str]) -> list[str]:
+    """Add the configured fallback source without overriding explicit input."""
+    if has_explicit_video_source(cli_args):
+        return cli_args
+
+    text = config_path.read_text(encoding="utf-8")
+    source = selected_video_source(cli_args, text)
+    if source == "pixabay":
+        return [*cli_args, "--video-source", source]
+    return cli_args
 
 
 def has_cli_option(cli_args: list[str], option: str) -> bool:
@@ -362,7 +395,7 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
             if not _has_configured_value(_plain_config_value(text, field)):
                 missing.append(field)
 
-    source = selected_video_source(cli_args)
+    source = selected_video_source(cli_args, text)
     if source not in SUPPORTED_SOURCES:
         raise SkillError(f"unsupported video source: {source}")
     if source == "volcengine_seedance":
@@ -427,7 +460,16 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
     elif source != "local":
         value = _plain_config_value(text, f"{source}_api_keys")
         if not _has_configured_value(value):
-            missing.append(f"{source}_api_keys")
+            if (
+                not has_explicit_video_source(cli_args)
+                and source == "pexels"
+                and not _has_configured_value(
+                    _plain_config_value(text, "pixabay_api_keys")
+                )
+            ):
+                missing.extend(["pexels_api_keys", "pixabay_api_keys"])
+            else:
+                missing.append(f"{source}_api_keys")
     return provider, missing
 
 
@@ -469,6 +511,8 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
     if "pexels_api_keys" in missing:
         print(f"PEXELS_API_KEY_URL={PEXELS_API_KEY_URL}")
         print(f"PEXELS_API_KEY_HELP_URL={PEXELS_API_KEY_HELP_URL}")
+    if "pixabay_api_keys" in missing:
+        print(f"PIXABAY_API_KEY_URL={PIXABAY_API_KEY_URL}")
     if "volcengine_seedance_api_key" in missing:
         print(f"VOLCENGINE_ARK_API_KEY_URL={VOLCENGINE_ARK_API_KEY_URL}")
         print("VOLCENGINE_ARK_API_KEY_ENV=MPT_VOLCENGINE_ARK_API_KEY")
@@ -544,10 +588,10 @@ def validate_pexels_config(config_path: Path, cli_args: list[str]) -> bool:
     one key is verified, retain only verified keys. If validation is impossible
     because of a transient network failure, keep the original configuration.
     """
-    if selected_video_source(cli_args) != "pexels":
+    text = config_path.read_text(encoding="utf-8")
+    if selected_video_source(cli_args, text) != "pexels":
         return True
 
-    text = config_path.read_text(encoding="utf-8")
     keys = _parse_string_list(_plain_config_value(text, "pexels_api_keys"))
     if not keys:
         return False
@@ -756,7 +800,8 @@ def main(argv: list[str] | None = None) -> int:
         config_path = ensure_config(root)
         apply_environment_config(config_path)
         reuse_existing_llm_provider(config_path)
-        provider, missing = missing_config(config_path, args.cli_args)
+        cli_args = resolve_video_source(config_path, args.cli_args)
+        provider, missing = missing_config(config_path, cli_args)
         if missing:
             write_result_manifest(
                 root,
@@ -767,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
             return report_missing_config(provider, missing)
-        if not validate_pexels_config(config_path, args.cli_args):
+        if not validate_pexels_config(config_path, cli_args):
             write_result_manifest(
                 root,
                 {
@@ -778,7 +823,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return report_invalid_pexels_config()
         videos, task_dir, log_path, result_path = generate_video(
-            root, args.subject, args.cli_args
+            root, args.subject, cli_args
         )
     except (OSError, SkillError, urllib.error.URLError, zipfile.BadZipFile) as exc:
         print(f"MPT_ERROR={exc}", file=sys.stderr)

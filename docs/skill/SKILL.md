@@ -24,7 +24,7 @@ The user only needs to provide a video topic or script. Complete installation, c
 
 ## Defaults
 
-Unless the user requests otherwise, generate one Chinese `9:16` portrait video with Pexels footage, the default Chinese Edge TTS voice, subtitles, and background music. Install MoneyPrinterTurbo under the user's home directory.
+Unless the user requests otherwise, generate one Chinese `9:16` portrait video with Pexels footage when a usable Pexels key exists; otherwise use Pixabay when its key is configured. Use the default Chinese Edge TTS voice, subtitles, and background music. Install MoneyPrinterTurbo under the user's home directory.
 
 ## Execution
 
@@ -109,6 +109,7 @@ MPT_LLM_API_KEY
 MPT_LLM_BASE_URL
 MPT_LLM_MODEL_NAME
 MPT_PEXELS_API_KEY
+MPT_PIXABAY_API_KEY
 MPT_VOLCENGINE_ARK_API_KEY
 MPT_OFOX_API_KEY
 MPT_METASO_MINIMAX_API_KEY
@@ -145,7 +146,7 @@ A terminal-tool path validation error is not a video-generation failure because 
 
 ## Configuration and Background Fallback
 
-The helper may read the complete local `config.toml` to reuse existing settings, but it must never print its contents. It reuses a working LLM provider automatically and validates configured Pexels keys through the authenticated My Collections endpoint before generation.
+The helper may read the complete local `config.toml` to reuse existing settings, but it must never print its contents. It reuses a working LLM provider automatically and validates configured Pexels keys through the authenticated My Collections endpoint before generation. A Pixabay key satisfies the default material requirement when no usable Pexels key exists; explicit `--video-source` selections always remain authoritative.
 
 Use background mode only if the agent platform cannot wait for a foreground process. Wait for the platform's process-completion notification without polling, then read `latest-result.json` once.
 

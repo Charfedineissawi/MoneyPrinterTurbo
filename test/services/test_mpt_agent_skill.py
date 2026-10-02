@@ -89,6 +89,7 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertIn("MPT_NEEDS_INPUT", text)
             self.assertIn("MISSING=moonshot_api_key", text)
             self.assertIn("MISSING=pexels_api_keys", text)
+            self.assertIn("MISSING=pixabay_api_keys", text)
             self.assertIn("LLM_PROVIDER_OPTION=deepseek|DeepSeek|", text)
             self.assertIn(
                 "LLM_PROVIDER_OPTION=oneapi|Other OpenAI-compatible provider|",
@@ -99,6 +100,9 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertNotIn("xAI Grok", text)
             self.assertIn(
                 f"PEXELS_API_KEY_URL={mpt_agent.PEXELS_API_KEY_URL}", text
+            )
+            self.assertIn(
+                f"PIXABAY_API_KEY_URL={mpt_agent.PIXABAY_API_KEY_URL}", text
             )
 
     def test_environment_keys_are_written_without_being_logged(self):
@@ -111,6 +115,7 @@ class TestMptAgentSkill(unittest.TestCase):
             seedance_key = "secret-ark-key"
             metaso_key = "secret-metaso-key"
             muapi_key = "secret-muapi-key"
+            pixabay_key = "secret-pixabay-key"
 
             with patch.dict(
                 os.environ,
@@ -118,6 +123,7 @@ class TestMptAgentSkill(unittest.TestCase):
                     "MPT_LLM_PROVIDER": "deepseek",
                     "MPT_LLM_API_KEY": llm_key,
                     "MPT_PEXELS_API_KEY": pexels_key,
+                    "MPT_PIXABAY_API_KEY": pixabay_key,
                     "MPT_VOLCENGINE_ARK_API_KEY": seedance_key,
                     "MPT_METASO_MINIMAX_API_KEY": metaso_key,
                     "MPT_MUAPI_API_KEY": muapi_key,
@@ -130,6 +136,7 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertIn('llm_provider = "deepseek"', config)
             self.assertIn(f'deepseek_api_key = "{llm_key}"', config)
             self.assertIn(f'pexels_api_keys = ["{pexels_key}"]', config)
+            self.assertIn(f'pixabay_api_keys = ["{pixabay_key}"]', config)
             self.assertIn(
                 f'volcengine_seedance_api_key = "{seedance_key}"', config
             )
@@ -137,6 +144,7 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertIn(f'muapi_api_key = "{muapi_key}"', config)
             self.assertNotIn(llm_key, output.getvalue())
             self.assertNotIn(pexels_key, output.getvalue())
+            self.assertNotIn(pixabay_key, output.getvalue())
             self.assertNotIn(seedance_key, output.getvalue())
             self.assertNotIn(metaso_key, output.getvalue())
             self.assertNotIn(muapi_key, output.getvalue())
@@ -156,8 +164,66 @@ class TestMptAgentSkill(unittest.TestCase):
                 config_path, ["--video-source", "pixabay"]
             )
 
-            self.assertEqual(default_missing, ["pexels_api_keys"])
+            self.assertEqual(default_missing, [])
             self.assertEqual(pixabay_missing, [])
+
+    def test_pixabay_is_implicit_fallback_when_pexels_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                MINIMAL_CONFIG.replace(
+                    'moonshot_api_key = ""', 'moonshot_api_key = "configured"'
+                ).replace(
+                    "pixabay_api_keys = []", 'pixabay_api_keys = ["pixabay-key"]'
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                mpt_agent.selected_video_source(
+                    [], config_path.read_text(encoding="utf-8")
+                ),
+                "pixabay",
+            )
+            self.assertEqual(mpt_agent.missing_config(config_path, [])[1], [])
+            self.assertEqual(
+                mpt_agent.resolve_video_source(config_path, []),
+                ["--video-source", "pixabay"],
+            )
+
+    def test_explicit_pexels_source_stays_required_with_pixabay_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                MINIMAL_CONFIG.replace(
+                    'moonshot_api_key = ""', 'moonshot_api_key = "configured"'
+                ).replace(
+                    "pixabay_api_keys = []", 'pixabay_api_keys = ["pixabay-key"]'
+                ),
+                encoding="utf-8",
+            )
+
+            _, missing = mpt_agent.missing_config(
+                config_path, ["--video-source", "pexels"]
+            )
+
+            self.assertEqual(missing, ["pexels_api_keys"])
+
+    def test_missing_default_material_keys_reports_both_options(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                MINIMAL_CONFIG.replace(
+                    'moonshot_api_key = ""', 'moonshot_api_key = "configured"'
+                ),
+                encoding="utf-8",
+            )
+
+            _, missing = mpt_agent.missing_config(config_path, [])
+
+            self.assertEqual(
+                missing, ["pexels_api_keys", "pixabay_api_keys"]
+            )
 
     def test_openai_image_source_accepts_keyless_local_gateway(self):
         """文生图素材源只需要端点与模型名，本地网关允许不配置 API Key。"""
@@ -659,7 +725,12 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertEqual(provider, "oneapi")
             self.assertEqual(
                 missing,
-                ["oneapi_base_url", "oneapi_model_name", "pexels_api_keys"],
+                [
+                    "oneapi_base_url",
+                    "oneapi_model_name",
+                    "pexels_api_keys",
+                    "pixabay_api_keys",
+                ],
             )
             self.assertIn("OPENAI_COMPATIBLE_REQUIRED=", output.getvalue())
 
