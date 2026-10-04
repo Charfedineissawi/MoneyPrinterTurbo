@@ -20,9 +20,6 @@ concurrency:
   group: docker-ghcr-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IMAGE_NAME: ghcr.io/harry0703/moneyprinterturbo
-
 jobs:
   publish:
     name: Build and publish
@@ -32,6 +29,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      # GITHUB_TOKEN can only push to the repo owner's namespace; Docker requires lowercase.
+      - name: Set image name
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/moneyprinterturbo" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
